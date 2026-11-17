@@ -272,12 +272,9 @@ export function BoardPanel({
         <span className="materialReadout" aria-live="polite" title="Material from your side. Pawn 1, knight or bishop 3, rook 5, queen 9.">
           <Scale size={14} />{score ? <><b>{score > 0 ? "+" : "−"}{Math.abs(score)}</b> material · You’re {score > 0 ? "up" : "down"} {Math.abs(score)} {Math.abs(score) === 1 ? "point" : "points"}</> : "Material even"}
         </span>
+        {!flat && <span className="cornerHint"><Orbit size={13} />Drag a gold corner to rotate</span>}
       </div>
       <div className={"boardStage " + (flat ? "flat" : "")}>
-        <span className="stageTicks tl" />
-        <span className="stageTicks tr" />
-        <span className="stageTicks bl" />
-        <span className="stageTicks br" />
         <Board
           game={game}
           selected={active ? null : selected}
@@ -288,6 +285,7 @@ export function BoardPanel({
           disabled={disabled || !!active}
           replay={active}
           angle={angle}
+          onAngle={changeAngle}
           allowDrag={allowDrag}
           last={last ? last.from + last.to : null}
         />
@@ -348,7 +346,7 @@ export function BoardPanel({
             onClick={e => { if (!gripMoved.current || e.detail === 0) setAngleOpen(!angleOpen); }}
           ><Orbit size={16} />Rotate</button>
           {angleOpen && <div className="cameraMenu">
-            <strong>Board angle</strong><p>Drag the Rotate grip or adjust these sliders.</p>
+            <strong>Board angle</strong><p>Drag a gold corner left or right to rotate, or up and down to tilt. You can also use these sliders.</p>
             {(["rotation", "tilt"] as const).map(axis => <label key={axis}>{axis === "rotation" ? "Rotation" : "Tilt"} <output>{angle[axis]}°</output>
               <input aria-label={axis === "rotation" ? "Board rotation" : "Board tilt"} type="range" min={angleLimit[axis][0]} max={angleLimit[axis][1]} value={angle[axis]} onChange={e => changeAngle(limitAngle(axis === "rotation" ? +e.target.value : angle.rotation, axis === "tilt" ? +e.target.value : angle.tilt))} />
             </label>)}

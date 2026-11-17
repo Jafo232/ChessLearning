@@ -2,7 +2,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Chess, type Square } from "chess.js";
 
-import type { BoardAngle } from "../lib/board-angle";
+import { limitAngle, type BoardAngle } from "../lib/board-angle";
 import { pieceNames, replayFraction, type MoveReplay } from "../lib/move-replay";
 
 type Point = { x: number; y: number };
@@ -13,6 +13,7 @@ type Props = {
   last: string | null;
   replay: MoveReplay | null;
   angle: BoardAngle;
+  onAngle: (next: BoardAngle) => void;
   allowDrag: boolean;
   flat: boolean;
   flipped: boolean;
@@ -69,7 +70,7 @@ export default function Board({
   targets,
   last,
   replay,
-  angle, allowDrag,
+  angle, onAngle, allowDrag,
   flat,
   flipped,
   onPick,
@@ -85,6 +86,7 @@ export default function Board({
   const [drag, setDrag] = useState<{
     from: Square; delta: Point; legal: Square[]; over?: Square;
   } | null>(null);
+  const cornerDrag = useRef<{id: number; x: number; y: number; start: BoardAngle} | null>(null);
   const checkClock = useRef({ fen: "", when: 0 });
   const [focus, setFocus] = useState(false),
     [cursor, setCursor] = useState<Square>("e4");
@@ -96,6 +98,11 @@ export default function Board({
   const viewHeight = flat ? flatSize : Math.max(475, 2 * (4.36 * 60 * Math.sin(pitch) * (Math.abs(Math.sin(yaw)) + Math.cos(yaw)) + 42));
   const coord = useMemo(() => (x: number, y: number, flip: boolean, isFlat: boolean) =>
     project(x, y, flip, isFlat, angle, viewHeight), [angle, viewHeight]);
+  const rim = useMemo(() => {
+    const edge = flat ? .32 : .34;
+    return [[-edge, -edge], [8 + edge, -edge], [8 + edge, 8 + edge], [-edge, 8 + edge]]
+      .map(([x, y]) => coord(x, y, flipped, flat));
+  }, [coord, flipped, flat]);
   const shapes = useMemo(() => {
     const result: {
       sq: Square;
@@ -163,8 +170,10 @@ export default function Board({
     if (!ctx) return;
     const box = cv.getBoundingClientRect(),
       ratio = Math.min(window.devicePixelRatio || 1, 2.5);
-    cv.width = Math.max(1, Math.round(box.width * ratio));
-    cv.height = Math.max(1, Math.round(box.height * ratio));
+    const width = Math.max(1, Math.round(box.width * ratio));
+    const height = Math.max(1, Math.round(box.height * ratio));
+    if (cv.width !== width) cv.width = width;
+    if (cv.height !== height) cv.height = height;
     const factor = Math.min(cv.width / viewWidth, cv.height / viewHeight);
     const ox = (cv.width - viewWidth * factor) / 2,
       oy = (cv.height - viewHeight * factor) / 2;
@@ -219,8 +228,7 @@ export default function Board({
           [-offset, 8 + offset],
         ].map(([x, y]) => coord(x, y, flipped, flat));
       const shift = (p: Point, h: number) => ({ x: p.x, y: p.y + h });
-      const rim = corners(flat ? 0.32 : 0.34),
-        thick = flat ? 3 : 12;
+      const thick = flat ? 3 : 12;
       c.save();
       c.shadowColor = "rgba(4,3,10,.82)";
       c.shadowBlur = 30 * factor;
@@ -247,6 +255,29 @@ export default function Board({
       face(rim, flat ? "#413846" : "#443b55", flat ? "#a393a1" : "#71647e", 0.8);
       if (flat) face(corners(0.275), "#332d39", "#645764", 0.8);
       face(corners(flat ? 0.05 : 0.095), "#292333", "#82738d", 0.7);
+      if (!flat) {
+        // Mark the same four rim vertices used for pointer hit-testing.
+        const unit = ratio / factor;
+        c.lineJoin = "round";
+        c.lineCap = "round";
+        for (const [i, tip] of rim.entries()) {
+          const ends = [rim[(i + 3) % 4], rim[(i + 1) % 4]].map(other => {
+            const length = Math.hypot(other.x - tip.x, other.y - tip.y);
+            return { x: tip.x + (other.x - tip.x) * 14 * unit / length,
+              y: tip.y + (other.y - tip.y) * 14 * unit / length };
+          });
+          c.beginPath();
+          c.moveTo(ends[0].x, ends[0].y);
+          c.lineTo(tip.x, tip.y);
+          c.lineTo(ends[1].x, ends[1].y);
+          c.lineWidth = 6 * unit;
+          c.strokeStyle = "#382d48";
+          c.stroke();
+          c.lineWidth = 3 * unit;
+          c.strokeStyle = "#e9d4a4";
+          c.stroke();
+        }
+      }
       for (const s of shapes) {
         const dark = (s.file + s.rank) % 2 === 0;
         const normal = flat ? (dark ? "#927b96" : "#dfd3c8") : dark
@@ -435,7 +466,7 @@ export default function Board({
       cancelAnimationFrame(frame);
     };
   }, [
-    viewWidth, viewHeight, replay, engineReady, angle, coord, drag,
+    viewWidth, viewHeight, replay, engineReady, angle, coord, rim, drag,
     fen,
     game,
     shapes,
@@ -495,6 +526,24 @@ export default function Board({
     }
     return shapes.find((s) => inside(p, s.poly))?.sq;
   }
+  function nearCorner(x: number, y: number) {
+    if (flat || !ref.current) return false;
+    const box = ref.current.getBoundingClientRect();
+    const scale = Math.min(box.width / viewWidth, box.height / viewHeight);
+    const left = box.left + (box.width - viewWidth * scale) / 2;
+    const top = box.top + (box.height - viewHeight * scale) / 2;
+    // at() also hits raised piece silhouettes outside the playing grid.
+    return rim.some(p => Math.hypot(x - left - p.x * scale, y - top - p.y * scale) <= 24)
+      && !at(x, y, true) && !at(x, y);
+  }
+  function endGesture(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (cornerDrag.current?.id === e.pointerId) cornerDrag.current = null;
+    if (gesture.current?.id === e.pointerId) {
+      gesture.current = null;
+      setDrag(null);
+    }
+    e.currentTarget.style.cursor = "";
+  }
   function dropAt(x: number, y: number, from: Square, legal: Square[]) {
     const tile = at(x, y, true);
     if (!tile || flat || legal.includes(tile)) return tile;
@@ -513,7 +562,15 @@ export default function Board({
         onFocus={() => setFocus(true)}
         onBlur={() => setFocus(false)}
         onPointerDown={(e) => {
-          if (disabled || !e.isPrimary || e.button !== 0) return;
+          if (!e.isPrimary || e.button !== 0) return;
+          if (nearCorner(e.clientX, e.clientY)) {
+            e.preventDefault();
+            cornerDrag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, start: angle };
+            e.currentTarget.setPointerCapture(e.pointerId);
+            e.currentTarget.style.cursor = "grabbing";
+            return;
+          }
+          if (disabled) return;
           setFocus(false);
           const square = at(e.clientX, e.clientY);
           const from = square && allowDrag && game.get(square)?.color === game.turn() ? square : undefined;
@@ -522,6 +579,14 @@ export default function Board({
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
+          const corner = cornerDrag.current;
+          if (corner && corner.id === e.pointerId) {
+            onAngle(limitAngle(corner.start.rotation + (e.clientX - corner.x) * .3,
+              corner.start.tilt + (e.clientY - corner.y) * .2));
+            return;
+          }
+          if (!gesture.current && e.pointerType !== "touch")
+            e.currentTarget.style.cursor = nearCorner(e.clientX, e.clientY) ? "grab" : "";
           const press = gesture.current;
           if (disabled || !press || press.id !== e.pointerId || press.fen !== fen) return;
           const dx = e.clientX - press.x, dy = e.clientY - press.y;
@@ -534,6 +599,11 @@ export default function Board({
           setDrag({ from: press.from, delta: {x: dx / scale, y: dy / scale}, legal: press.legal, over });
         }}
         onPointerUp={(e) => {
+          if (cornerDrag.current?.id === e.pointerId) {
+            cornerDrag.current = null;
+            e.currentTarget.style.cursor = "";
+            return;
+          }
           const press = gesture.current;
           if (!press || press.id !== e.pointerId) return;
           gesture.current = null;
@@ -547,8 +617,8 @@ export default function Board({
             if (to && to !== press.from) { setCursor(to); onPick(to, press.from); }
           }
         }}
-        onLostPointerCapture={() => { gesture.current = null; setDrag(null); }}
-        onPointerCancel={() => { gesture.current = null; setDrag(null); }}
+        onLostPointerCapture={endGesture}
+        onPointerCancel={endGesture}
         onKeyDown={(e) => {
           if (disabled) return;
           const dirs: Record<string, [number, number]> = {

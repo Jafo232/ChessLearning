@@ -1,3 +1,5 @@
+import { lessonNotes, type LessonNotes } from "./lesson-notes";
+
 export type Mode = "Attack" | "Defense";
 export type Trap = {
   name: string;
@@ -10,6 +12,7 @@ export type Trap = {
 };
 export type Lesson = {
   trap?: Trap;
+  notes: LessonNotes;
   id: string;
   title: string;
   mode: Mode;
@@ -27,6 +30,7 @@ export type Lesson = {
 const tactics: Lesson[] = [
   {
     id: "royal-fork",
+    notes: lessonNotes["royal-fork"],
     title: "The royal fork",
     mode: "Attack",
     level: "Beginner",
@@ -53,6 +57,7 @@ const tactics: Lesson[] = [
   },
   {
     id: "scholars-mate",
+    notes: lessonNotes["scholars-mate"],
     title: "Stop Scholar’s Mate",
     mode: "Defense",
     level: "Beginner",
@@ -82,6 +87,7 @@ const tactics: Lesson[] = [
   },
   {
     id: "back-rank",
+    notes: lessonNotes["back-rank"],
     title: "Back-rank mate",
     mode: "Attack",
     level: "Beginner",
@@ -104,6 +110,7 @@ const tactics: Lesson[] = [
   },
   {
     id: "absolute-pin",
+    notes: lessonNotes["absolute-pin"],
     title: "The absolute pin",
     mode: "Attack",
     level: "Beginner",
@@ -126,6 +133,7 @@ const tactics: Lesson[] = [
   },
   {
     id: "block-check",
+    notes: lessonNotes["block-check"],
     title: "Block the check",
     mode: "Defense",
     level: "Beginner",
@@ -148,6 +156,7 @@ const tactics: Lesson[] = [
   },
   {
     id: "rook-skewer",
+    notes: lessonNotes["rook-skewer"],
     title: "Skewer the queen",
     mode: "Attack",
     level: "Intermediate",
@@ -173,10 +182,11 @@ const tactics: Lesson[] = [
       ],
     ],
     takeaway:
-      "The check forced the king off the fifth rank, exposing the more valuable piece behind it.",
+      "The check forced the king off the fifth rank, exposing the queen on a5 to your rook.",
   },
   {
     id: "escape-square",
+    notes: lessonNotes["escape-square"],
     title: "Make an escape square",
     mode: "Defense",
     level: "Intermediate",
@@ -210,24 +220,25 @@ const tactics: Lesson[] = [
   },
   {
     id: "remove-attacker",
+    notes: lessonNotes["remove-attacker"],
     title: "Capture the attacker",
     mode: "Defense",
     level: "Intermediate",
-    motif: "Mate threat",
+    motif: "King defense",
     art: "bn",
     tone: "lilac",
     fen: "r5k1/pp3ppp/2pb4/8/7q/3Q1N2/PPP2PPP/5RK1 w - - 0 1",
     paths: [["f3h4"]],
     intro:
-      "Black threatens to take h2 with the queen, supported by the bishop on d6. Look for a forcing defense.",
-    tasks: ["Stop the threatened checkmate by capturing the attacking queen."],
+      "Black’s queen and bishop both attack h2. Is the queen safe where it stands?",
+    tasks: ["Capture the queen before it reaches h2."],
     hints: [
       [
         "Which white piece already attacks h4?",
         "The knight on f3 can capture the queen on h4.",
       ],
     ],
-    takeaway: "Capturing the queen removed the mating threat in a single move.",
+    takeaway: "Your knight took the queen on h4 before Black could give check on h2.",
   },
 ];
 
@@ -247,6 +258,7 @@ scholar.intro =
   "White’s queen and bishop are lining up a four-move checkmate. Break their attack before it lands.";
 const fools: Lesson = {
   id: "fools-mate",
+  notes: lessonNotes["fools-mate"],
   title: "Escape Fool’s Mate",
   mode: "Defense",
   level: "Beginner",
@@ -280,6 +292,7 @@ const fools: Lesson = {
 };
 const legal: Lesson = {
   id: "legals-mate",
+  notes: lessonNotes["legals-mate"],
   title: "Avoid Légal’s Mate",
   mode: "Defense",
   level: "Intermediate",
@@ -326,6 +339,7 @@ const legal: Lesson = {
 };
 const shilling: Lesson = {
   id: "shilling-trap",
+  notes: lessonNotes["shilling-trap"],
   title: "The shilling trap",
   mode: "Defense",
   level: "Intermediate",
@@ -380,6 +394,7 @@ const shilling: Lesson = {
 };
 const playScholar: Lesson = {
   id: "play-scholars-mate",
+  notes: lessonNotes["play-scholars-mate"],
   title: "Deliver Scholar’s Mate",
   mode: "Attack",
   level: "Beginner",

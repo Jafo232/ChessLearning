@@ -108,6 +108,8 @@ export default function Trainer({ player }: { player: string }) {
     soundFlag = useRef(true),
     replyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     boot = useRef(false);
+  const notesTitle = useRef<HTMLHeadingElement>(null);
+  const notesButton = useRef<HTMLButtonElement>(null);
   const audio = useRef<AudioContext | null>(null);
   const tone = useCallback((cue: SoundCue = "move") => {
     if (!soundFlag.current) return;
@@ -559,6 +561,9 @@ export default function Trainer({ player }: { player: string }) {
                 </div>
                 <h2>{lesson.title}</h2>
                 <p className="briefIntro">{lesson.intro}</p>
+                <button className="notesJump" ref={notesButton} onClick={() => notesTitle.current?.focus()}>
+                  <BookOpen size={15} />History &amp; lesson notes
+                </button>
                 {study ? (
                   <>
                     <div className="objective">
@@ -747,6 +752,27 @@ export default function Trainer({ player }: { player: string }) {
                 </div>
               </aside>
             </div>
+            <article key={lesson.id} className="lessonNotes" aria-labelledby="lesson-notes-title">
+              <h2 ref={notesTitle} id="lesson-notes-title" tabIndex={-1}>{lesson.notes.heading}</h2>
+              <div className="notesColumns">
+                <section>
+                  <h3>History</h3>
+                  <p>{lesson.notes.history}</p>
+                  <a href={lesson.notes.source.url} target="_blank" rel="noreferrer">{lesson.notes.source.title}</a>
+                </section>
+                <section>
+                  <h3>Reading the position</h3>
+                  <p>{lesson.notes.position}</p>
+                  <details>
+                    <summary>Show the moves</summary>
+                    <p>{lesson.notes.continuation}</p>
+                  </details>
+                </section>
+              </div>
+              <button className="notesJump notesReturn" onClick={() => notesButton.current?.focus()}>
+                <ArrowLeft size={14} />Back to the exercise
+              </button>
+            </article>
             <section className="shelf">
               <div className="shelfHead">
                 <div className="row">

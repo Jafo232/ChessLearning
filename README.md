@@ -2,7 +2,7 @@
 
 Knightfall has 12 interactive chess lessons and a full game mode. Opening lessons cover Scholar’s Mate, Fool’s Mate, Légal’s Mate, and the Blackburne Shilling Trap. Replay the mating line, identify the target square, then play the defense. Other lessons cover forks, pins, skewers, and back-rank tactics.
 
-In **Play chess**, choose White or Black and adjust the computer on a five-level difficulty slider. Click a piece and its destination, or drag the piece onto a highlighted square. In 3D, drag the lower-right **Rotate** grip to set the camera angle, or click it for sliders. Both modes also support a 2D board and keyboard controls. The game uses chess.js for the rules and runs its computer opponent in a Web Worker.
+In **Play chess**, choose White or Black and adjust the computer on a five-level difficulty slider. Click a piece and its destination, or drag the piece onto a highlighted square. In 3D, drag any gold corner on the board rim to rotate or tilt. The angle is saved on this device. The **Rotate** button also offers sliders. Both modes also support a 2D board and keyboard controls. The game uses chess.js for the rules and runs its computer opponent in a Web Worker.
 
 ## Development
 
