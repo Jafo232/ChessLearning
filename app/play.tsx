@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Square } from "chess.js";
+import type { Chess, Square } from "chess.js";
 import {
   Bot,
   Check,
@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Undo2,
 } from "lucide-react";
+import type { SoundCue } from "../lib/chess-sound";
 import { BoardPanel, Modal, SectionHead } from "./ui";
 import {
   freshGame,
@@ -24,7 +25,7 @@ export default function Play({
   tone,
 }: {
   player: string;
-  tone: () => void;
+  tone: (cue?: SoundCue) => void;
 }) {
   const key = "knightfall:game:" + player;
   const [s, setS] = useState<GameState>(freshGame),
@@ -131,6 +132,10 @@ export default function Play({
       updatedAt: Math.max(Date.now(), prev.updatedAt + 1),
     }));
   }
+  function moveSound(position: Chess) {
+    if (position.isCheckmate()) tone(position.turn() === s.side ? "loss" : "win");
+    else tone(position.isDraw() ? "draw" : "move");
+  }
   useEffect(() => {
     if (!thinking) return;
     let canceled = false;
@@ -141,9 +146,13 @@ export default function Play({
         setError("The computer paused. Retry its move.");
       }
     }, 10000);
+    let replyTimer: ReturnType<typeof setTimeout>;
+    const earliest = performance.now() + 1450;
     worker.onmessage = (e) => {
       if (canceled) return;
       clearTimeout(timer);
+      replyTimer = setTimeout(() => {
+      if (canceled) return;
       try {
         if (!e.data.move) throw Error();
         const g = position(s);
@@ -151,10 +160,11 @@ export default function Play({
         if (!m) throw Error();
         update({ moves: [...s.moves, e.data.move] });
         setError("");
-        tone();
+        moveSound(g);
       } catch {
         setError("The computer paused. Retry its move.");
       }
+      }, Math.max(0, earliest - performance.now()));
     };
     worker.onerror = () => {
       clearTimeout(timer);
@@ -163,6 +173,7 @@ export default function Play({
     worker.postMessage({ moves: s.moves, level: s.level });
     return () => {
       canceled = true;
+      clearTimeout(replyTimer);
       clearTimeout(timer);
       worker.terminate();
     };
@@ -187,7 +198,7 @@ export default function Play({
       select(null);
       setPromo(null);
       setError("");
-      tone();
+      moveSound(copy);
     } catch {}
   }
   function pick(sq: Square) {
@@ -213,10 +224,10 @@ export default function Play({
         : "Select one of your own pieces.",
     );
   }
-  const history = game.history(),
+  const history = useMemo(() => game.history({ verbose: true }), [game]),
     result = game.isCheckmate()
       ? game.turn() === s.side
-        ? "Checkmate · Computer wins"
+        ? "Checkmate · You lose"
         : "Checkmate · You win"
       : game.isStalemate()
         ? "Draw by stalemate"
@@ -255,7 +266,9 @@ export default function Play({
           game={game}
           selected={selected}
           targets={targets}
-          last={s.moves.at(-1) || null}
+          last={history.at(-1) || null}
+          replayBlocked={!ready || thinking}
+          outcome={over ? { kind: game.isCheckmate() ? (game.turn() === s.side ? "loss" : "win") : "draw", text: result } : undefined}
           orientation={s.side}
           onPick={pick}
           disabled={!ready || thinking || over}
@@ -338,8 +351,8 @@ export default function Play({
               Array.from({ length: Math.ceil(history.length / 2) }, (_, i) => (
                 <div key={i}>
                   <em>{i + 1}.</em>
-                  <b>{history[i * 2]}</b>
-                  <b>{history[i * 2 + 1] || "…"}</b>
+                  <b>{history[i * 2].san}</b>
+                  <b>{history[i * 2 + 1]?.san || "…"}</b>
                 </div>
               ))
             )}

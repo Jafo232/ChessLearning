@@ -1,5 +1,7 @@
 """Render the Knightfall Staunton set with Blender 4.3 and Pillow.
 blender -b -P art/render-pieces.py
+For the 2D board: blender -b -P art/render-pieces.py -- --flat
+For WebGL: blender -b -P art/render-pieces.py -- --models
 """
 import bpy
 from mathutils import Vector
@@ -7,8 +9,13 @@ from math import sin, cos, pi, radians, atan2
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
+import sys
+
+flat = '--flat' in sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else False
 
 OUT=Path(__file__).resolve().parent.parent / 'public/pieces'
+if flat:
+    OUT = OUT / 'flat'
 OUT.mkdir(parents=True,exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene=bpy.context.scene
@@ -69,7 +76,10 @@ camera=bpy.data.objects.new('camera',cam)
 scene.collection.objects.link(camera)
 focus=Vector((0,0,.52))
 # A centered orthographic view keeps one anchor valid for every sprite.
-camera.location=focus+Vector((0,-9*cos(radians(42)),9*sin(radians(42))))
+elevation = radians(12 if flat else 42)
+if flat:
+    focus = Vector((0, 0, .66))
+camera.location=focus+Vector((0,-9*cos(elevation),9*sin(elevation)))
 camera.rotation_euler=(focus-camera.location).to_track_quat('-Z','Y').to_euler()
 cam.type='ORTHO'
 cam.ortho_scale=1.5
@@ -176,7 +186,7 @@ def horse(mat,trim,detail):
     group=bpy.data.objects.new('knight profile',None)
     scene.collection.objects.link(group)
     for ob in set(bpy.data.objects)-horse_parts_before-{group}:ob.parent=group
-    group.rotation_euler.z=radians(23)
+    group.rotation_euler.z=radians(8 if flat else 23)
 
 def rook(mat):
     stem(.30,.586,.207,mat,1.22)
@@ -254,6 +264,68 @@ def make(col,piece):
     elif piece=='b':bishop(mat)
     elif piece=='q':queen(mat)
     elif piece=='k':king(mat)
+def export_models():
+    models = []
+    for kind in "pnbrqk":
+        before = set(bpy.data.objects)
+        make('w', kind)
+        bpy.context.view_layer.update()
+        parts = [ob for ob in set(bpy.data.objects) - before if ob.type == 'MESH']
+        bpy.ops.object.select_all(action='DESELECT')
+        for ob in parts:
+            # Bake the sculpt and parent transform before joining the carved details.
+            matrix = ob.matrix_world.copy()
+            ob.parent = None
+            ob.matrix_world = matrix
+            bpy.context.view_layer.objects.active = ob
+            for modifier in list(ob.modifiers):
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
+            if len(ob.data.polygons) > 220:
+                low = ob.modifiers.new('game resolution', 'DECIMATE')
+                low.ratio = .13
+                bpy.ops.object.modifier_apply(modifier=low.name)
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = parts[0]
+        bpy.ops.object.join()
+        model = bpy.context.view_layer.objects.active
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        model.name = kind
+        models.append(model)
+    bpy.ops.object.select_all(action='DESELECT')
+    for model in models:
+        model.select_set(True)
+    dest = OUT.parent / 'models' / 'staunton.glb'
+    dest.parent.mkdir(exist_ok=True)
+    bpy.ops.export_scene.gltf(filepath=str(dest), use_selection=True, export_texcoords=False,
+        export_animations=False, export_cameras=False, export_lights=False)
+
+if '--models' in sys.argv:
+    export_models()
+    sys.exit(0)
+
+# Every flat sprite has the same square canvas. Different pieces keep their visual
+# weight, while the broad profile and low camera make the crowns legible at 40px.
+flat_heights = {'k': 216, 'q': 209, 'b': 200, 'n': 192, 'r': 178, 'p': 151}
+encode_flat = """
+from PIL import Image, ImageFilter
+import sys
+im = Image.open(sys.argv[1]).convert('RGBA')
+im = im.crop(im.getchannel('A').getbbox())
+height = int(sys.argv[3])
+width = round(im.width * height / im.height * 1.20)
+im = im.resize((width, height), Image.Resampling.LANCZOS)
+tile = Image.new('RGBA', (256, 256))
+tile.alpha_composite(im, ((256 - width) // 2, (256 - height) // 2))
+if sys.argv[4] == 'w':
+    # A narrow warm contour separates ivory from the light squares at phone sizes.
+    alpha = tile.getchannel('A').filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.GaussianBlur(.8))
+    edge = Image.new('RGBA', tile.size, (84, 64, 56, 0))
+    edge.putalpha(alpha.point(lambda value: round(value * .72)))
+    edge.alpha_composite(tile)
+    tile = edge
+tile.save(sys.argv[2], quality=94, method=6, exact=True)
+"""
 temp = TemporaryDirectory()
 for col in ['w','b']:
     for piece in ['n','k','q','b','p','r']:
@@ -261,6 +333,9 @@ for col in ['w','b']:
         make(col,piece)
         scene.render.filepath=str(Path(temp.name)/f'{col}{piece}.png')
         bpy.ops.render.render(write_still=True)
-        subprocess.run(['python3', '-c', "from PIL import Image; import sys; Image.open(sys.argv[1]).convert('RGBA').save(sys.argv[2], quality=93, method=6, exact=True)", scene.render.filepath, str(OUT/f'{col}{piece}.webp')], check=True)
+        if flat:
+            subprocess.run(['python3', '-c', encode_flat, scene.render.filepath, str(OUT/f'{col}{piece}.webp'), str(flat_heights[piece]), col], check=True)
+        else:
+            subprocess.run(['python3', '-c', "from PIL import Image; import sys; Image.open(sys.argv[1]).convert('RGBA').save(sys.argv[2], quality=93, method=6, exact=True)", scene.render.filepath, str(OUT/f'{col}{piece}.webp')], check=True)
         for ob in set(bpy.data.objects)-before:bpy.data.objects.remove(ob,do_unlink=True)
 temp.cleanup()

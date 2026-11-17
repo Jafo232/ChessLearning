@@ -6,7 +6,7 @@ In **Play chess**, choose White or Black and adjust the computer on a five-level
 
 ## Development
 
-Use Node 22.13 or newer. Install with `npm ci` and run `npm run dev`. Use `npm run build` to build for ChatGPT Sites. The current lesson catalog is in `lib/lessons.ts`. The 3D piece models are reproducible with `art/render-pieces.py`.
+Use Node 22.13 or newer. Install with `npm ci` and run `npm run dev`. Use `npm run build` to build for ChatGPT Sites. The current lesson catalog is in `lib/lessons.ts`. Three.js renders the Staunton models with WebGL. Browsers without WebGL use illustrated pieces. To regenerate the model file or the flat sprites, run `blender -b -P art/render-pieces.py -- --models` or `blender -b -P art/render-pieces.py -- --flat`.
 
 ## Saved progress
 

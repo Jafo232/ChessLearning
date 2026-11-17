@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Box,
   Check,
@@ -9,14 +9,24 @@ import {
   Grid2X2,
   Layers3,
   Rotate3D,
+  StepBack,
+  Orbit,
+  Maximize2,
+  Minimize2,
+  Scale,
+  Trophy,
+  Flag,
   RotateCcw,
   Shield,
   Swords,
   X,
 } from "lucide-react";
-import type { Chess, Square } from "chess.js";
+import type { Chess, Move, Square } from "chess.js";
 import type { Lesson } from "../lib/lessons";
 import Board from "./board";
+import { createReplay, replayDuration, type MoveReplay } from "../lib/move-replay";
+import { materialBalance } from "../lib/material";
+import { readAngle, defaultAngle, limitAngle, angleLimit, type BoardAngle } from "../lib/board-angle";
 
 export function Mark() {
   return (
@@ -125,7 +135,10 @@ export type PanelProps = {
   game: Chess;
   selected: Square | null;
   targets: Square[];
-  last: string | null;
+  last: Move | null;
+  replayBlocked?: boolean;
+  onReplay?: () => void;
+  outcome?: { kind: "win" | "loss" | "draw"; text: string };
   onPick: (sq: Square) => void;
   disabled: boolean;
   orientation: "w" | "b";
@@ -140,7 +153,7 @@ export function BoardPanel({
   game,
   selected,
   targets,
-  last,
+  last, replayBlocked, onReplay, outcome,
   onPick,
   disabled,
   orientation,
@@ -153,6 +166,47 @@ export function BoardPanel({
 }: PanelProps) {
   const [flat, setFlat] = useState(false),
     [flip, setFlip] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", escape);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", escape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [expanded]);
+  const [angle, setAngle] = useState(defaultAngle), [angleOpen, setAngleOpen] = useState(false);
+  const [motion, setMotion] = useState<{ game: Chess; viewKey: string; clip: MoveReplay } | null>(null);
+  const fen = game.fen();
+  const previous = useRef({fen, viewKey});
+  const active = motion?.game === game && motion.viewKey === viewKey ? motion.clip : null;
+  const startMotion = useCallback((move: Move, slow: boolean) => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setMotion({ game, viewKey, clip: createReplay(move, reduced, slow) });
+  }, [game, viewKey]);
+  useEffect(() => {
+    const prev = previous.current;
+    previous.current = { fen, viewKey };
+    if (last && prev.viewKey === viewKey && prev.fen !== fen && prev.fen === last.before)
+      startMotion(last, false);
+  }, [fen, viewKey, last, startMotion]);
+  useEffect(() => {
+    if (!motion) return;
+    const timer = setTimeout(() => setMotion(null), motion.clip.slow ? replayDuration : 845);
+    return () => clearTimeout(timer);
+  }, [motion]);
+  useEffect(() => { setAngle(readAngle()); }, []);
+  const changeAngle = useCallback((next: BoardAngle) => {
+    setAngle(next);
+    try { localStorage.setItem("knightfall:angle", JSON.stringify(next)); } catch {}
+  }, []);
+  const score = materialBalance(game, orientation);
+  const ResultIcon = outcome?.kind === "win" ? Trophy : Flag;
   useEffect(() => {
     setFlip(false);
   }, [viewKey, orientation]);
@@ -168,7 +222,7 @@ export function BoardPanel({
     } catch {}
   }
   return (
-    <section className="boardPanel" aria-label="Chessboard">
+    <section className={"boardPanel" + (expanded ? " expandedBoard" : "")} aria-label="Chessboard">
       <div className="boardToolbar">
         <div className="turnGroup">
           <span
@@ -177,6 +231,20 @@ export function BoardPanel({
           <strong>{label}</strong>
           {check && <span className="checkTag">Check</span>}
         </div>
+        <div className="boardDisplayTools">
+          <button className="focusBoard" aria-pressed={expanded} title={expanded ? "Exit focus view" : "Focus on board"} aria-label={expanded ? "Exit focus view" : "Focus on board"} onClick={() => setExpanded(!expanded)}>
+            {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
+        {!flat && <div className="cameraControl">
+          <button className="cameraButton" aria-expanded={angleOpen} onClick={() => setAngleOpen(!angleOpen)} title="Adjust board angle"><Orbit size={14} /> Angle</button>
+          {angleOpen && <div className="cameraMenu">
+            <strong>Board angle</strong><p>Drag the board to rotate and tilt.</p>
+            {(["rotation", "tilt"] as const).map(axis => <label key={axis}>{axis === "rotation" ? "Rotation" : "Tilt"} <output>{angle[axis]}°</output>
+              <input aria-label={axis === "rotation" ? "Board rotation" : "Board tilt"} type="range" min={angleLimit[axis][0]} max={angleLimit[axis][1]} value={angle[axis]} onChange={e => changeAngle(limitAngle(axis === "rotation" ? +e.target.value : angle.rotation, axis === "tilt" ? +e.target.value : angle.tilt))} />
+            </label>)}
+            <div className="row spread"><button onClick={() => changeAngle(defaultAngle)}>Reset angle</button><button onClick={() => setAngleOpen(false)}>Done</button></div>
+          </div>}
+        </div>}
         <div className="viewSwitch" aria-label="Board view">
           <button
             onClick={() => view(false)}
@@ -196,6 +264,12 @@ export function BoardPanel({
           </button>
         </div>
       </div>
+      </div>
+      <div className="matchStrip">
+        <span className="materialReadout" aria-live="polite" title="Material from your side. Pawn 1, knight or bishop 3, rook 5, queen 9.">
+          <Scale size={14} />{score ? <><b>{score > 0 ? "+" : "−"}{Math.abs(score)}</b> material · You’re {score > 0 ? "up" : "down"} {Math.abs(score)} {Math.abs(score) === 1 ? "point" : "points"}</> : "Material even"}
+        </span>
+      </div>
       <div className={"boardStage " + (flat ? "flat" : "")}>
         <span className="stageTicks tl" />
         <span className="stageTicks tr" />
@@ -203,24 +277,34 @@ export function BoardPanel({
         <span className="stageTicks br" />
         <Board
           game={game}
-          selected={selected}
-          targets={targets}
+          selected={active ? null : selected}
+          targets={active ? [] : targets}
           flat={flat}
           flipped={(orientation === "b") !== flip}
           onPick={onPick}
-          disabled={disabled}
-          last={last}
+          disabled={disabled || !!active}
+          replay={active}
+          angle={angle}
+          onAngle={changeAngle}
+          last={last ? last.from + last.to : null}
         />
       </div>
+      {outcome && !active && <div className={"matchResult " + outcome.kind} role="status">
+        <ResultIcon size={21} /><strong>{outcome.text}</strong>
+      </div>}
       <div className="boardFooter">
         <span
           className={"boardMessage " + (accent ? "accent" : "")}
           aria-live="polite"
         >
           {accent ? <CircleCheck size={14} /> : <Crosshair size={14} />}{" "}
-          {message}
+          {active ? active.description : message}
         </span>
         <div className="boardTools">
+          <button className="replayButton" aria-label="Replay last move" title="Replay last move" disabled={!last || replayBlocked} onClick={() => {
+            if (last) { onReplay?.(); startMotion(last, true); }
+          }}><StepBack size={15} /><span>Replay<span className="longLabel"> last move</span></span></button>
+          <span className="vline" />
           <button
             onClick={() => setFlip((f) => !f)}
             title="Flip board"

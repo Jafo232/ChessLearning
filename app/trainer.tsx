@@ -43,6 +43,7 @@ import {
   Tile,
 } from "./ui";
 import Play from "./play";
+import { playCue, type SoundCue } from "../lib/chess-sound";
 type Tab = "train" | "library" | "play" | "progress";
 type Filter = "All" | "Opening traps" | "Attack" | "Defense";
 const emptyPath: string[] = [];
@@ -90,7 +91,7 @@ export default function Trainer({ player }: { player: string }) {
     [records, setRecords] = useState<Records>({}),
     [ready, setReady] = useState(false);
   const [filter, setFilter] = useState<Filter>("All"),
-    [sound, setSound] = useState(false),
+    [sound, setSound] = useState(true),
     [help, setHelp] = useState(false);
   const [sel, setSel] = useState<Square | null>(null),
     [hint, setHint] = useState(0),
@@ -104,27 +105,31 @@ export default function Trainer({ player }: { player: string }) {
     [localFailed, setLocalFailed] = useState(false);
   const dataRef = useRef<Records>({}),
     known = useRef<Records>({}),
-    soundFlag = useRef(false),
+    soundFlag = useRef(true),
     replyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     boot = useRef(false);
   const audio = useRef<AudioContext | null>(null);
-  const tone = useCallback(() => {
+  const tone = useCallback((cue: SoundCue = "move") => {
     if (!soundFlag.current) return;
     try {
       const ctx = audio.current || (audio.current = new AudioContext());
-      void ctx.resume();
-      const o = ctx.createOscillator(),
-        gain = ctx.createGain();
-      o.type = "sine";
-      o.frequency.setValueAtTime(530, ctx.currentTime);
-      o.frequency.exponentialRampToValueAtTime(175, ctx.currentTime + 0.065);
-      gain.gain.setValueAtTime(0.07, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.085);
-      o.connect(gain);
-      gain.connect(ctx.destination);
-      o.start();
-      o.stop(ctx.currentTime + 0.09);
+      void ctx.resume().then(() => { if (soundFlag.current) playCue(ctx, cue); }).catch(() => {});
     } catch {}
+  }, []);
+  useEffect(() => {
+    const unlock = () => {
+      if (!soundFlag.current) return;
+      try {
+        const ctx = audio.current || (audio.current = new AudioContext());
+        if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      } catch {}
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
   }, []);
   function persist(next: Records) {
     dataRef.current = next;
@@ -174,7 +179,7 @@ export default function Trainer({ player }: { player: string }) {
     )[0];
     if (last) setIndex(lessons.findIndex((l) => l.id === last.lesson));
     try {
-      const on = localStorage.getItem("knightfall:sound") === "on";
+      const on = localStorage.getItem("knightfall:sound") !== "off";
       soundFlag.current = on;
       setSound(on);
     } catch {}
@@ -244,8 +249,7 @@ export default function Trainer({ player }: { player: string }) {
       sel ? game.moves({ square: sel, verbose: true }).map((m) => m.to) : [],
     [sel, game],
   );
-  const last = game.history({ verbose: true }).at(-1),
-    lastMove = last ? last.from + last.to : null;
+  const last = useMemo(() => game.history({ verbose: true }).at(-1) || null, [game]);
   useEffect(() => {
     if (!auto || !study) return;
     if (ply >= studyLine.length) {
@@ -255,7 +259,7 @@ export default function Trainer({ player }: { player: string }) {
     const timer = setTimeout(() => {
       setPly((p) => p + 1);
       tone();
-    }, 950);
+    }, 2050);
     return () => clearTimeout(timer);
   }, [auto, study, ply, studyLine, tone]);
   function save(i: number, moves: string[], complete = false) {
@@ -364,9 +368,9 @@ export default function Trainer({ player }: { player: string }) {
     setSel(null);
     setHint(0);
     setQuiz("off");
-    tone();
     const reply = line[half.length];
     if (reply) {
+      tone();
       const end = [...half, reply];
       save(index, end);
       setReplyView(half);
@@ -375,8 +379,9 @@ export default function Trainer({ player }: { player: string }) {
         setReplyView(null);
         setFb({ text: "Your turn. Find the follow-up.", success: true });
         tone();
-      }, 650);
+      }, 1400);
     } else {
+      tone("win");
       save(index, half, true);
       setFb({ text: "Lesson complete", success: true });
     }
@@ -486,7 +491,9 @@ export default function Trainer({ player }: { player: string }) {
                 game={game}
                 selected={sel}
                 targets={targets}
-                last={lastMove}
+                last={last}
+                replayBlocked={!ready || !!replyView}
+                onReplay={() => setAuto(false)}
                 onPick={pick}
                 disabled={
                   !!study || !ready || !!replyView || (solved && quiz !== "ask")
