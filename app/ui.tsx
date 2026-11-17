@@ -139,7 +139,8 @@ export type PanelProps = {
   replayBlocked?: boolean;
   onReplay?: () => void;
   outcome?: { kind: "win" | "loss" | "draw"; text: string };
-  onPick: (sq: Square) => void;
+  onPick: (to: Square, from?: Square) => void;
+  allowDrag?: boolean;
   disabled: boolean;
   orientation: "w" | "b";
   label: string;
@@ -153,7 +154,7 @@ export function BoardPanel({
   game,
   selected,
   targets,
-  last, replayBlocked, onReplay, outcome,
+  last, replayBlocked, onReplay, outcome, allowDrag = true,
   onPick,
   disabled,
   orientation,
@@ -180,10 +181,17 @@ export function BoardPanel({
       document.body.style.overflow = previousOverflow;
     };
   }, [expanded]);
+  const grip = useRef<{id: number; x: number; y: number; angle: BoardAngle} | null>(null);
+  const gripMoved = useRef(false);
   const [angle, setAngle] = useState(defaultAngle), [angleOpen, setAngleOpen] = useState(false);
   const [motion, setMotion] = useState<{ game: Chess; viewKey: string; clip: MoveReplay } | null>(null);
   const fen = game.fen();
   const previous = useRef({fen, viewKey});
+  const dropped = useRef<{ fen: string; from: Square; to: Square } | null>(null);
+  function pick(to: Square, from?: Square) {
+    dropped.current = from ? { fen, from, to } : null;
+    onPick(to, from);
+  }
   const active = motion?.game === game && motion.viewKey === viewKey ? motion.clip : null;
   const startMotion = useCallback((move: Move, slow: boolean) => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -192,6 +200,11 @@ export function BoardPanel({
   useEffect(() => {
     const prev = previous.current;
     previous.current = { fen, viewKey };
+    if (last && dropped.current?.fen === last.before &&
+      dropped.current.from === last.from && dropped.current.to === last.to) {
+      dropped.current = null;
+      return;
+    }
     if (last && prev.viewKey === viewKey && prev.fen !== fen && prev.fen === last.before)
       startMotion(last, false);
   }, [fen, viewKey, last, startMotion]);
@@ -235,16 +248,6 @@ export function BoardPanel({
           <button className="focusBoard" aria-pressed={expanded} title={expanded ? "Exit focus view" : "Focus on board"} aria-label={expanded ? "Exit focus view" : "Focus on board"} onClick={() => setExpanded(!expanded)}>
             {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
-        {!flat && <div className="cameraControl">
-          <button className="cameraButton" aria-expanded={angleOpen} onClick={() => setAngleOpen(!angleOpen)} title="Adjust board angle"><Orbit size={14} /> Angle</button>
-          {angleOpen && <div className="cameraMenu">
-            <strong>Board angle</strong><p>Drag the board to rotate and tilt.</p>
-            {(["rotation", "tilt"] as const).map(axis => <label key={axis}>{axis === "rotation" ? "Rotation" : "Tilt"} <output>{angle[axis]}°</output>
-              <input aria-label={axis === "rotation" ? "Board rotation" : "Board tilt"} type="range" min={angleLimit[axis][0]} max={angleLimit[axis][1]} value={angle[axis]} onChange={e => changeAngle(limitAngle(axis === "rotation" ? +e.target.value : angle.rotation, axis === "tilt" ? +e.target.value : angle.tilt))} />
-            </label>)}
-            <div className="row spread"><button onClick={() => changeAngle(defaultAngle)}>Reset angle</button><button onClick={() => setAngleOpen(false)}>Done</button></div>
-          </div>}
-        </div>}
         <div className="viewSwitch" aria-label="Board view">
           <button
             onClick={() => view(false)}
@@ -281,11 +284,11 @@ export function BoardPanel({
           targets={active ? [] : targets}
           flat={flat}
           flipped={(orientation === "b") !== flip}
-          onPick={onPick}
+          onPick={pick}
           disabled={disabled || !!active}
           replay={active}
           angle={angle}
-          onAngle={changeAngle}
+          allowDrag={allowDrag}
           last={last ? last.from + last.to : null}
         />
       </div>
@@ -322,6 +325,36 @@ export function BoardPanel({
             <RotateCcw size={15} />
             <span>Reset</span>
           </button>
+        {!flat && <div className="cameraControl">
+          <button className="cameraGrip" aria-label="Rotate board" aria-expanded={angleOpen}
+            title="Drag this grip to rotate and tilt. Click for angle settings."
+            onPointerDown={e => {
+              if (!e.isPrimary || e.button !== 0) return;
+              gripMoved.current = false;
+              grip.current = {id: e.pointerId, x: e.clientX, y: e.clientY, angle};
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={e => {
+              const start = grip.current;
+              if (!start || start.id !== e.pointerId) return;
+              const dx = e.clientX - start.x, dy = e.clientY - start.y;
+              if (!gripMoved.current && Math.hypot(dx, dy) < 4) return;
+              gripMoved.current = true;
+              setAngleOpen(false);
+              changeAngle(limitAngle(start.angle.rotation + dx * .26, start.angle.tilt + dy * .19));
+            }}
+            onLostPointerCapture={() => { grip.current = null; }}
+            onPointerCancel={() => { grip.current = null; gripMoved.current = true; }}
+            onClick={e => { if (!gripMoved.current || e.detail === 0) setAngleOpen(!angleOpen); }}
+          ><Orbit size={16} />Rotate</button>
+          {angleOpen && <div className="cameraMenu">
+            <strong>Board angle</strong><p>Drag the Rotate grip or adjust these sliders.</p>
+            {(["rotation", "tilt"] as const).map(axis => <label key={axis}>{axis === "rotation" ? "Rotation" : "Tilt"} <output>{angle[axis]}°</output>
+              <input aria-label={axis === "rotation" ? "Board rotation" : "Board tilt"} type="range" min={angleLimit[axis][0]} max={angleLimit[axis][1]} value={angle[axis]} onChange={e => changeAngle(limitAngle(axis === "rotation" ? +e.target.value : angle.rotation, axis === "tilt" ? +e.target.value : angle.tilt))} />
+            </label>)}
+            <div className="row spread"><button onClick={() => changeAngle(defaultAngle)}>Reset angle</button><button onClick={() => setAngleOpen(false)}>Done</button></div>
+          </div>}
+        </div>}
         </div>
       </div>
     </section>

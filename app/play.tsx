@@ -189,11 +189,11 @@ export default function Play({
         : [],
     [game, selected],
   );
-  function make(to: Square, promotion?: string) {
-    if (!selected) return;
+  function make(to: Square, promotion?: string, from = selected) {
+    if (!from) return;
     const copy = position(s);
     try {
-      const m = copy.move({ from: selected, to, promotion });
+      const m = copy.move({ from, to, promotion });
       update({ moves: [...s.moves, m.from + m.to + (m.promotion || "")] });
       select(null);
       setPromo(null);
@@ -201,25 +201,28 @@ export default function Play({
       moveSound(copy);
     } catch {}
   }
-  function pick(sq: Square) {
+  function pick(sq: Square, draggedFrom?: Square) {
     if (!ready || over || thinking) return;
-    if (selected === sq) {
+    if (!draggedFrom && selected === sq) {
       select(null);
       return;
     }
-    if (game.get(sq)?.color === s.side) {
+    if (!draggedFrom && game.get(sq)?.color === s.side) {
       select(sq);
       setError("");
       return;
     }
-    if (selected && targets.includes(sq)) {
-      if (game.get(selected)?.type === "p" && ["8", "1"].includes(sq[1]))
+    const from = draggedFrom ?? selected;
+    const legal = draggedFrom ? game.moves({ square: draggedFrom, verbose: true }).some(m => m.to === sq) : targets.includes(sq);
+    if (from && legal) {
+      if (game.get(from)?.type === "p" && ["8", "1"].includes(sq[1])) {
+        select(from);
         setPromo(sq);
-      else make(sq);
+      } else make(sq, undefined, from);
       return;
     }
     setError(
-      selected
+      from
         ? "Choose a highlighted legal move."
         : "Select one of your own pieces.",
     );

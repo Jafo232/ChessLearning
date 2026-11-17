@@ -2,7 +2,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Chess, type Square } from "chess.js";
 
-import { limitAngle, type BoardAngle } from "../lib/board-angle";
+import type { BoardAngle } from "../lib/board-angle";
 import { pieceNames, replayFraction, type MoveReplay } from "../lib/move-replay";
 
 type Point = { x: number; y: number };
@@ -13,17 +13,17 @@ type Props = {
   last: string | null;
   replay: MoveReplay | null;
   angle: BoardAngle;
-  onAngle: (angle: BoardAngle) => void;
+  allowDrag: boolean;
   flat: boolean;
   flipped: boolean;
-  onPick: (s: Square) => void;
+  onPick: (to: Square, from?: Square) => void;
   disabled: boolean;
 };
 const FILES = "abcdefgh";
 type RenderPiece = { sq: Square; piece: NonNullable<ReturnType<Chess["get"]>>; center: Point; opacity: number };
 type Scene = {
   draw: (w: number, h: number, vw: number, vh: number, flat: boolean, pieces: RenderPiece[], angle: BoardAngle) => void;
-  hit: (x: number, y: number) => Square | undefined;
+  hit: (x: number, y: number, skip?: Square) => Square | undefined;
   dispose: () => void;
 };
 const flatSize = 512;
@@ -69,7 +69,7 @@ export default function Board({
   targets,
   last,
   replay,
-  angle, onAngle,
+  angle, allowDrag,
   flat,
   flipped,
   onPick,
@@ -78,8 +78,13 @@ export default function Board({
   const ref = useRef<HTMLCanvasElement>(null), overlay = useRef<HTMLCanvasElement>(null);
   const engine = useRef<Scene | null>(null);
   const [engineReady, setEngineReady] = useState(false);
-  const gesture = useRef<{ id: number; x: number; y: number; initial: BoardAngle; moved: boolean } | null>(null);
-  const ignoreClick = useRef(false);
+  const gesture = useRef<{
+    id: number; x: number; y: number; square?: Square; from?: Square;
+    legal: Square[]; moved: boolean; fen: string;
+  } | null>(null);
+  const [drag, setDrag] = useState<{
+    from: Square; delta: Point; legal: Square[]; over?: Square;
+  } | null>(null);
   const checkClock = useRef({ fen: "", when: 0 });
   const [focus, setFocus] = useState(false),
     [cursor, setCursor] = useState<Square>("e4");
@@ -165,6 +170,8 @@ export default function Board({
       oy = (cv.height - viewHeight * factor) / 2;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const checked = game.isCheck();
+    const source = drag?.from ?? selected;
+    const destinations = drag?.legal ?? targets;
     if (checkClock.current.fen !== fen) checkClock.current = { fen, when: performance.now() };
     if (checked && replay) checkClock.current.when = replay.startedAt + (replay.slow ? 1950 : 810);
     let frame = 0,
@@ -250,7 +257,7 @@ export default function Board({
             ? "#d5c4df"
             : "#d4c2df";
         const highlight =
-          s.sq === selected
+          s.sq === source
             ? "#ac92e4"
             : last?.includes(s.sq)
               ? dark
@@ -266,11 +273,13 @@ export default function Board({
           c.fillStyle = glaze;
           c.fillRect(x, y, tileSize, tileSize);
         }
+        if (s.sq === drag?.over && destinations.includes(s.sq))
+          face(s.poly, "#ab99de72", "#f5eaff", 2.5);
         const occupant = position.get(s.sq);
         if (inCheck && occupant?.type === "k" && occupant.color === position.turn()) {
           face(s.poly, "rgba(174,43,51,.67)", "#ffb2a0", 2.3);
         }
-        if (s.sq === selected || (focus && s.sq === cursor)) {
+        if (s.sq === source || (focus && s.sq === cursor)) {
           const inner = s.poly.map((p) => ({
             x: s.center.x + (p.x - s.center.x) * 0.91,
             y: s.center.y + (p.y - s.center.y) * 0.91,
@@ -352,8 +361,10 @@ export default function Board({
           Math.min(1, (1 - travel) * 4) : 1;
         const drawCenter = shake && piece.type === "k" && piece.color === position.turn() ?
           { x: center.x + shake, y: center.y } : center;
-        return [{ sq: s.sq, piece, center: drawCenter, opacity, moving: !!dest }];
-      }).sort((a, b) => flat ? Number(a.moving) - Number(b.moving) : a.center.y - b.center.y);
+        const lifted = drag?.from === s.sq;
+        const visibleCenter = lifted ? { x: drawCenter.x + drag.delta.x, y: drawCenter.y + drag.delta.y } : drawCenter;
+        return [{ sq: s.sq, piece, center: visibleCenter, opacity, moving: !!dest || lifted, lifted }];
+      }).sort((a, b) => a.lifted !== b.lifted ? Number(a.lifted) - Number(b.lifted) : flat ? Number(a.moving) - Number(b.moving) : a.center.y - b.center.y);
       for (const { center, piece, opacity } of pieces) {
         if (flat) {
           const base = { p: 16, r: 19, n: 20.5, b: 21.5, q: 22.5, k: 24 }[piece.type];
@@ -364,7 +375,7 @@ export default function Board({
         }
       }
       for (const s of shapes) {
-        if (targets.includes(s.sq)) {
+        if (destinations.includes(s.sq)) {
           c.fillStyle = "#4e337c99";
           c.beginPath();
           c.ellipse(
@@ -424,7 +435,7 @@ export default function Board({
       cancelAnimationFrame(frame);
     };
   }, [
-    viewWidth, viewHeight, replay, engineReady, angle, coord,
+    viewWidth, viewHeight, replay, engineReady, angle, coord, drag,
     fen,
     game,
     shapes,
@@ -437,7 +448,7 @@ export default function Board({
     cursor,
     size,
   ]);
-  function at(x: number, y: number) {
+  function at(x: number, y: number, tileOnly = false, skip?: Square) {
     const el = ref.current;
     if (!el) return;
     const b = el.getBoundingClientRect(),
@@ -446,16 +457,17 @@ export default function Board({
       x: (x - b.left - (b.width - viewWidth * k) / 2) / k,
       y: (y - b.top - (b.height - viewHeight * k) / 2) / k,
     };
+    if (tileOnly) return shapes.find(s => inside(p, s.poly))?.sq;
     // Silhouettes extend above their tiles. Test opaque sprite pixels front to back.
     if (!flat && engineReady && engine.current) {
       const tile = shapes.find((s) => inside(p, s.poly));
       if (tile && targets.includes(tile.sq)) return tile.sq;
-      return engine.current.hit((x - b.left) / b.width, (y - b.top) / b.height) || tile?.sq;
+      return engine.current.hit((x - b.left) / b.width, (y - b.top) / b.height, skip) || tile?.sq;
     }
     if (!flat) {
       for (const s of [...shapes].reverse()) {
         const pc = game.get(s.sq);
-        if (!pc) continue;
+        if (!pc || s.sq === skip) continue;
         if (targets.includes(s.sq) && inside(p, s.poly)) return s.sq;
         const im = imgCache[pc.color + pc.type];
         if (!im?.complete || !im.naturalWidth) continue;
@@ -483,9 +495,15 @@ export default function Board({
     }
     return shapes.find((s) => inside(p, s.poly))?.sq;
   }
+  function dropAt(x: number, y: number, from: Square, legal: Square[]) {
+    const tile = at(x, y, true);
+    if (!tile || flat || legal.includes(tile)) return tile;
+    const silhouette = at(x, y, false, from);
+    return silhouette && legal.includes(silhouette) ? silhouette : tile;
+  }
   return (
     <>
-      <div className={"chessCanvas surface" + (flat ? " flatCanvas" : "")} data-renderer={engineReady ? "three" : "canvas"}>
+      <div className={"chessCanvas surface" + (flat ? " flatCanvas" : "")} data-renderer={engineReady ? "three" : "canvas"} data-dragging={!!drag}>
       <canvas
         ref={ref}
         tabIndex={0}
@@ -495,32 +513,42 @@ export default function Board({
         onFocus={() => setFocus(true)}
         onBlur={() => setFocus(false)}
         onPointerDown={(e) => {
+          if (disabled || !e.isPrimary || e.button !== 0) return;
           setFocus(false);
-          ignoreClick.current = false;
-          if (flat || e.button !== 0 || !e.isPrimary) return;
-          gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY, initial: angle, moved: false };
+          const square = at(e.clientX, e.clientY);
+          const from = square && allowDrag && game.get(square)?.color === game.turn() ? square : undefined;
+          const legal = from ? game.moves({square: from, verbose: true}).map(m => m.to) : [];
+          gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY, square, from, legal, moved: false, fen };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          const drag = gesture.current;
-          if (!drag || drag.id !== e.pointerId) return;
-          const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-          if (!drag.moved && Math.hypot(dx, dy) < 6) return;
-          drag.moved = true;
-          ignoreClick.current = true;
-          onAngle(limitAngle(drag.initial.rotation + dx * .26, drag.initial.tilt + dy * .19));
+          const press = gesture.current;
+          if (disabled || !press || press.id !== e.pointerId || press.fen !== fen) return;
+          const dx = e.clientX - press.x, dy = e.clientY - press.y;
+          if (!press.moved && Math.hypot(dx, dy) < (e.pointerType === "touch" ? 9 : 6)) return;
+          press.moved = true;
+          if (!press.from) return;
+          const box = e.currentTarget.getBoundingClientRect();
+          const scale = Math.min(box.width / viewWidth, box.height / viewHeight);
+          const over = dropAt(e.clientX, e.clientY, press.from, press.legal);
+          setDrag({ from: press.from, delta: {x: dx / scale, y: dy / scale}, legal: press.legal, over });
         }}
-        onLostPointerCapture={() => { gesture.current = null; }}
-        onPointerCancel={() => { gesture.current = null; ignoreClick.current = true; }}
-        onClick={(e) => {
-          if (disabled || ignoreClick.current) return;
-          const sq = at(e.clientX, e.clientY);
-          if (sq) {
-            setFocus(false);
-            setCursor(sq);
-            onPick(sq);
+        onPointerUp={(e) => {
+          const press = gesture.current;
+          if (!press || press.id !== e.pointerId) return;
+          gesture.current = null;
+          setDrag(null);
+          if (disabled || press.fen !== fen) return;
+          if (!press.moved && press.square) {
+            setCursor(press.square);
+            onPick(press.square);
+          } else if (press.from && press.moved) {
+            const to = dropAt(e.clientX, e.clientY, press.from, press.legal);
+            if (to && to !== press.from) { setCursor(to); onPick(to, press.from); }
           }
         }}
+        onLostPointerCapture={() => { gesture.current = null; setDrag(null); }}
+        onPointerCancel={() => { gesture.current = null; setDrag(null); }}
         onKeyDown={(e) => {
           if (disabled) return;
           const dirs: Record<string, [number, number]> = {

@@ -317,7 +317,7 @@ export default function Trainer({ player }: { player: string }) {
     setStudy(kind);
     setPly(0);
   }
-  function pick(square: Square) {
+  function pick(square: Square, draggedFrom?: Square) {
     if (study || replyView || !ready) return;
     if (quiz === "ask") {
       const correct = square === lesson.trap?.target;
@@ -334,27 +334,29 @@ export default function Trainer({ player }: { player: string }) {
       return;
     }
     if (solved) return;
-    if (sel === square) {
+    if (!draggedFrom && sel === square) {
       setSel(null);
       return;
     }
-    if (game.get(square)?.color === game.turn()) {
+    if (!draggedFrom && game.get(square)?.color === game.turn()) {
       setSel(square);
       setFb(freshFeedback);
       return;
     }
-    if (!sel) {
+    const from = draggedFrom ?? sel;
+    if (!from) {
       setFb({ text: "Select one of your pieces first.", success: false });
       return;
     }
-    if (!targets.includes(square)) {
+    const legal = draggedFrom ? game.moves({ square: from, verbose: true }).some(m => m.to === square) : targets.includes(square);
+    if (!legal) {
       setFb({
         text: "That move isn’t legal. Choose a highlighted square.",
         success: false,
       });
       return;
     }
-    const move = sel + square,
+    const move = from + square,
       line = matchingPaths(lesson, path).find((l) => l[path.length] === move);
     if (!line) {
       setFb({
@@ -495,6 +497,7 @@ export default function Trainer({ player }: { player: string }) {
                 replayBlocked={!ready || !!replyView}
                 onReplay={() => setAuto(false)}
                 onPick={pick}
+                allowDrag={quiz !== "ask"}
                 disabled={
                   !!study || !ready || !!replyView || (solved && quiz !== "ask")
                 }

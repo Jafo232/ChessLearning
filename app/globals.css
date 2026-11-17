@@ -1313,8 +1313,8 @@ input[type="range"] {
 /* The board and WebGL pieces share a single viewport and projection. */
 .surface { flex: none; height: auto; }
 .surface canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; outline-offset: -3px; }
-.surface:not(.flatCanvas) canvas { touch-action: none; cursor: grab; }
-.surface:not(.flatCanvas) canvas:active { cursor: grabbing; }
+.surface canvas { touch-action: none; cursor: pointer; }
+.surface[data-dragging="true"] canvas { cursor: grabbing; }
 .surface .sceneLayer { pointer-events: none; }
 .surface.flatCanvas { width: min(calc(100% - 16px), clamp(430px, 60vh, 600px)); aspect-ratio: 1; min-height: 0; max-height: none; margin: 5px auto 10px; }
 .boardStage { background: radial-gradient(ellipse at 50% 55%, #514153 0%, #312a37 40%, #1d1a21 75%); }
@@ -1357,4 +1357,17 @@ input[type="range"] {
 @media (max-width: 420px) {
   .boardDisplayTools { gap: 2px; }
   .cameraButton { font-size: 11px; }
+}
+
+.boardFooter .cameraMenu { top: auto; right: 0; bottom: calc(100% + 8px); z-index: 4; }
+.boardTools .cameraGrip {
+  min-height: 36px; min-width: 76px; justify-content: center; padding: 6px 10px;
+  border: 1px solid #675873; border-radius: 7px; background: #332b3b;
+  color: #e9def4; font-weight: 600; cursor: grab; touch-action: none; user-select: none;
+}
+.boardTools .cameraGrip:active { cursor: grabbing; transform: none; }
+@media (pointer: coarse) { .boardTools .cameraGrip { min-height: 44px; } }
+@media (max-width: 480px) {
+  .boardFooter { flex-wrap: wrap; }
+  .boardTools { margin-left: auto; }
 }
